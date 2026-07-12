@@ -23,25 +23,19 @@ client = Groq(api_key=GROQ_API_KEY)
 
 st.markdown(background, unsafe_allow_html=True)
 
-# ---------------------------------------------------------------------------
-# Model config
-# ---------------------------------------------------------------------------
+
 PRIMARY_MODEL  = "llama-3.3-70b-versatile"
 FALLBACK_MODEL = "mixtral-8x7b-32768"
 MAX_RETRIES    = 3
 
 
-# ---------------------------------------------------------------------------
-# Embedding model — loaded once per app session, cached globally
-# ---------------------------------------------------------------------------
+
 @st.cache_resource(show_spinner="Loading embedding model (first time only)...")
 def load_embedding_model():
     return SentenceTransformer("all-MiniLM-L6-v2")
 
 
-# ---------------------------------------------------------------------------
-# API helper
-# ---------------------------------------------------------------------------
+
 def call_api(messages, temperature=0.2, max_tokens=4096):
     models_to_try = [PRIMARY_MODEL, FALLBACK_MODEL]
 
@@ -95,9 +89,7 @@ def call_api(messages, temperature=0.2, max_tokens=4096):
     return None
 
 
-# ---------------------------------------------------------------------------
-# Text extraction
-# ---------------------------------------------------------------------------
+
 def extract_text(uploaded_file):
     filetype = uploaded_file.name.split(".")[-1].lower()
     if filetype == "pdf":
@@ -119,16 +111,19 @@ def extract_text_from_docx(uploaded_file):
     return "\n".join([para.text for para in doc.paragraphs])
 
 
-# ---------------------------------------------------------------------------
-# RAG: Chunking → Embedding → Retrieval
-# ---------------------------------------------------------------------------
+
 def chunk_text(text, chunk_size=500, overlap=50):
     chunks = []
     start = 0
     while start < len(text):
         end = min(start + chunk_size, len(text))
+        
+        if end < len(text) and ' ' in text[start:end]:
+            while end > start and text[end - 1] != ' ':
+                end -= 1
+                
         chunks.append(text[start:end])
-        start += chunk_size - overlap
+        start = end - overlap
     return chunks
 
 def build_rag_index(text):
@@ -146,9 +141,7 @@ def retrieve_relevant_chunks(question, chunks, embeddings, top_k=5):
     return [chunks[i] for i in top_indices]
 
 
-# ---------------------------------------------------------------------------
-# Hallucination Guard — verify answer is grounded in retrieved context
-# ---------------------------------------------------------------------------
+
 def check_grounding(answer, context_chunks):
     context = "\n---\n".join(context_chunks)
     messages = [
@@ -176,12 +169,10 @@ def check_grounding(answer, context_chunks):
         result = response.choices[0].message.content.strip().upper()
         return "NOT_GROUNDED" not in result
     except Exception:
-        return True  # fail open
+        return False
 
 
-# ---------------------------------------------------------------------------
-# Summarization
-# ---------------------------------------------------------------------------
+
 def summarize_text(text):
     prompt = (
         "Summarize this medical document/report by focusing on diagnosis, "
@@ -198,9 +189,7 @@ def summarize_text(text):
     return call_api(messages)
 
 
-# ---------------------------------------------------------------------------
-# RAG-powered Follow-up Q&A
-# ---------------------------------------------------------------------------
+
 def ask_followup(question, chunks, embeddings):
     relevant_chunks = retrieve_relevant_chunks(question, chunks, embeddings)
     context = "\n\n---\n\n".join(relevant_chunks)
@@ -225,9 +214,7 @@ def ask_followup(question, chunks, embeddings):
     return answer, is_grounded
 
 
-# ---------------------------------------------------------------------------
-# UI
-# ---------------------------------------------------------------------------
+
 st.title("🩺 Medical Report Summarization")
 
 # Session state initialisation

@@ -42,17 +42,13 @@ client = Groq(api_key=GROQ_API_KEY)
 
 st.markdown(background, unsafe_allow_html=True)
 
-# ---------------------------------------------------------------------------
-# Model config
-# ---------------------------------------------------------------------------
+
 PRIMARY_MODEL  = "llama-3.3-70b-versatile"
 FALLBACK_MODEL = "mixtral-8x7b-32768"
 MAX_RETRIES    = 3
 
 
-# ---------------------------------------------------------------------------
-# API helper
-# ---------------------------------------------------------------------------
+
 def call_api(messages, temperature=0.2, max_tokens=4096):
     models_to_try = [PRIMARY_MODEL, FALLBACK_MODEL]
 
@@ -106,9 +102,7 @@ def call_api(messages, temperature=0.2, max_tokens=4096):
     return None
 
 
-# ---------------------------------------------------------------------------
-# Text extraction
-# ---------------------------------------------------------------------------
+
 def extract_text(uploaded_file):
     filetype = uploaded_file.name.split(".")[-1].lower()
     if filetype == "pdf":
@@ -130,9 +124,7 @@ def extract_text_from_docx(uploaded_file):
     return "\n".join([para.text for para in doc.paragraphs])
 
 
-# ---------------------------------------------------------------------------
-# Medical Report Comparison
-# ---------------------------------------------------------------------------
+
 def compare_reports(text_a, text_b):
     """
     Ask the LLM to perform a structured diff of two medical reports.
@@ -179,15 +171,17 @@ Rules:
 
 
 def parse_comparison(raw_response):
-    """Parse the LLM JSON response, stripping markdown code fences if present."""
+    """Parse the LLM JSON response strictly using Regex."""
     if not raw_response:
         return None
-    text = raw_response.strip()
-    # Strip markdown code fences if the model added them
-    if text.startswith("```"):
-        lines = text.split("\n")
-        # Remove first and last fence lines
-        text = "\n".join(lines[1:-1]) if lines[-1].strip() == "```" else "\n".join(lines[1:])
+        
+    import re
+    # Extract everything from the first '{' to the last '}'
+    match = re.search(r'\{.*\}', raw_response, re.DOTALL)
+    if not match:
+        return None
+        
+    text = match.group(0)
     try:
         return json.loads(text)
     except json.JSONDecodeError:
@@ -260,9 +254,7 @@ def render_comparison(data):
         render_list_card("Questions to Ask Your Doctor", questions, "#38bdf8", "🩺")
 
 
-# ---------------------------------------------------------------------------
-# UI
-# ---------------------------------------------------------------------------
+
 st.title("🔬 Medical Report Comparison")
 st.markdown(
     "Upload two medical reports (e.g. an older and a newer one) to see what changed, "
