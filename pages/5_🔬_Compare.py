@@ -1,18 +1,12 @@
 import streamlit as st
-import pdfplumber
-import docx
-import io
-import time
 import json
-from groq import Groq, RateLimitError
+import re
+from utils import set_background, call_api, extract_text
 
-background = """
+set_background()
+
+st.markdown("""
 <style>
-[data-testid="stApp"]{
-    background-color: #000000;
-    opacity: 0.8;
-    background-image:  repeating-radial-gradient( circle at 0 0, transparent 0, #000000 6px ), repeating-linear-gradient( #43434355, #434343 );
-}
 .compare-card {
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid rgba(255, 255, 255, 0.12);
@@ -35,104 +29,9 @@ background = """
     letter-spacing: 0.05em;
 }
 </style>
-"""
-
-GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
-client = Groq(api_key=GROQ_API_KEY)
-
-st.markdown(background, unsafe_allow_html=True)
-
-# ---------------------------------------------------------------------------
-# Model config
-# ---------------------------------------------------------------------------
-PRIMARY_MODEL  = "llama-3.3-70b-versatile"
-FALLBACK_MODEL = "mixtral-8x7b-32768"
-MAX_RETRIES    = 3
+""", unsafe_allow_html=True)
 
 
-# ---------------------------------------------------------------------------
-# API helper
-# ---------------------------------------------------------------------------
-def call_api(messages, temperature=0.2, max_tokens=4096):
-    models_to_try = [PRIMARY_MODEL, FALLBACK_MODEL]
-
-    for model_index, model in enumerate(models_to_try):
-        if model_index > 0:
-            st.warning(
-                f"⚠️ `{PRIMARY_MODEL}` exhausted after {MAX_RETRIES} retries. "
-                f"Switching to fallback model `{FALLBACK_MODEL}`..."
-            )
-
-        for attempt in range(MAX_RETRIES):
-            try:
-                response = client.chat.completions.create(
-                    model=model,
-                    messages=messages,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                )
-                return response.choices[0].message.content
-
-            except RateLimitError as e:
-                retry_after = 30
-                try:
-                    retry_after = int(e.response.headers.get("retry-after", 30))
-                except Exception:
-                    pass
-
-                is_last_attempt = (attempt == MAX_RETRIES - 1)
-                if is_last_attempt:
-                    break
-
-                label = st.empty()
-                for remaining in range(retry_after, 0, -1):
-                    label.warning(
-                        f"⏳ Rate limited — retrying in **{remaining}s** "
-                        f"(attempt {attempt + 1} of {MAX_RETRIES} on `{model}`)..."
-                    )
-                    time.sleep(1)
-                label.empty()
-
-            except Exception as e:
-                st.error(f"❌ Unexpected API error: `{e}`")
-                return None
-
-    total = MAX_RETRIES * len(models_to_try)
-    st.error(
-        f"❌ Both `{PRIMARY_MODEL}` and `{FALLBACK_MODEL}` are rate-limited "
-        f"after {MAX_RETRIES} attempts each ({total} total tries). "
-        "Please wait a minute and try again."
-    )
-    return None
-
-
-# ---------------------------------------------------------------------------
-# Text extraction
-# ---------------------------------------------------------------------------
-def extract_text(uploaded_file):
-    filetype = uploaded_file.name.split(".")[-1].lower()
-    if filetype == "pdf":
-        return extract_text_from_pdf(uploaded_file)
-    elif filetype == "docx":
-        return extract_text_from_docx(uploaded_file)
-    else:
-        st.error("Incompatible file type. Please upload a PDF or DOCX file.")
-        return ""
-
-def extract_text_from_pdf(uploaded_file):
-    with pdfplumber.open(io.BytesIO(uploaded_file.read())) as pdf:
-        return "\n".join(
-            [page.extract_text() for page in pdf.pages if page.extract_text()]
-        )
-
-def extract_text_from_docx(uploaded_file):
-    doc = docx.Document(uploaded_file)
-    return "\n".join([para.text for para in doc.paragraphs])
-
-
-# ---------------------------------------------------------------------------
-# Medical Report Comparison
-# ---------------------------------------------------------------------------
 def compare_reports(text_a, text_b):
     """
     Ask the LLM to perform a structured diff of two medical reports.
@@ -179,15 +78,16 @@ Rules:
 
 
 def parse_comparison(raw_response):
-    """Parse the LLM JSON response, stripping markdown code fences if present."""
+    """Parse the LLM JSON response strictly using Regex."""
     if not raw_response:
         return None
-    text = raw_response.strip()
-    # Strip markdown code fences if the model added them
-    if text.startswith("```"):
-        lines = text.split("\n")
-        # Remove first and last fence lines
-        text = "\n".join(lines[1:-1]) if lines[-1].strip() == "```" else "\n".join(lines[1:])
+        
+    # Extract everything from the first '{' to the last '}'
+    match = re.search(r'\{.*\}', raw_response, re.DOTALL)
+    if not match:
+        return None
+        
+    text = match.group(0)
     try:
         return json.loads(text)
     except json.JSONDecodeError:
@@ -260,9 +160,6 @@ def render_comparison(data):
         render_list_card("Questions to Ask Your Doctor", questions, "#38bdf8", "🩺")
 
 
-# ---------------------------------------------------------------------------
-# UI
-# ---------------------------------------------------------------------------
 st.title("🔬 Medical Report Comparison")
 st.markdown(
     "Upload two medical reports (e.g. an older and a newer one) to see what changed, "

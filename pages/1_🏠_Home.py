@@ -1,18 +1,8 @@
 import streamlit as st
 
 
-# custom background
-background = """
-<style>
-[data-testid="stApp"]{
-    background-color: #000000;
-    opacity: 0.8;
-    background-image:  repeating-radial-gradient( circle at 0 0, transparent 0, #000000 6px ), repeating-linear-gradient( #43434355, #434343 );
-}
-</style>
-"""
-
-st.markdown(background, unsafe_allow_html=True)
+from utils import set_background
+set_background()
 
 st.markdown("""
 <style>
